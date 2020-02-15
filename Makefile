@@ -189,8 +189,8 @@ UPROGS=\
 	_hello\
 	_uniq\
 
-fs.img: mkfs README.md test.txt $(UPROGS)
-	./mkfs fs.img README.md test.txt $(UPROGS)
+fs.img: mkfs README.md test.txt test2.txt $(UPROGS)
+	./mkfs fs.img README.md test.txt test2.txt $(UPROGS)
 
 -include *.d
 

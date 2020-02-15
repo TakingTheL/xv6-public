@@ -4,46 +4,56 @@
 
 #define MAXLINELEN 1024
 
-char buf[MAXLINELEN];
-// taken from string.c, wasn't able to (read: don't know how to) include it directly
-
-// copies n bytes from t to s
+char buf[512];
+// Like strncpy but guaranteed to NUL-terminate.
+// tTken from string.c, wasn't able to (read: don't know how to) include it directly
 char*
-strncpy(char *s, const char *t, int n)
+safestrcpy(char *s, const char *t, int n)
 {
   char *os;
   
   os = s;
-  while(n-- > 0 && (*s++ = *t++) != 0)
+  if(n <= 0)
+    return os;
+  while(--n > 0 && (*s++ = *t++) != 0)
     ;
-  while(n-- > 0)
-    *s++ = 0;
+  *s = 0;
   return os;
 }
 
+char
+tolower(uchar ch){
+  if (ch >= 'A' && ch <= 'Z')
+    ch = 'a' + (ch - 'A');
+  return ch;
+}
 
-char*
-readline(char* dest, char* src, int n)
-// reads a line (ending in '\n' or '\0') of at most length buf_len
+int
+stricmp(const char *p, const char *q)
 {
-  while (n-- > 0 && *src != '\n' && *src != '\0')
-  {
-    *dest++ = *src++;
-  }
-  *dest++ = 0;
-  return dest;
+  while(*p && tolower(*p) == tolower(*q))
+    p++, q++;
+  return (uchar)*p - (uchar)*q;
 }
 
 void
-uniq(int fd)
+uniq(int fd, int flags)
 {
-  //TODO: error message when line length exceeds 1024
+  // behavior undefined when line length exceeds MAXLINELEN chars.
+  // BUGS: last few lines of input will be IGNORED
   int bytes_read;
   int i;
-  int line, word, character;
-  line = word = character = 0;
+  int line, character;
+  int prev_not_equals_curr;
+  int start;
+  start = line = character = 0;
   char* prev_line = malloc(MAXLINELEN * sizeof(char));
   char* curr_line = malloc(MAXLINELEN * sizeof(char));
+
+  int cflag, dflag, iflag;
+  iflag = flags % 2;
+  dflag = (flags / 2)  % 2;
+  cflag = (flags / 4) % 2;
 
   while((bytes_read = read(fd, buf, sizeof(buf))) > 0){
     for(i=0; i < bytes_read; i++){
@@ -52,15 +62,70 @@ uniq(int fd)
       if(buf[i] == '\n'){
         curr_line[character] = '\0';
         line++;
-        if(strcmp(prev_line, curr_line) != 0){
-          printf(1, curr_line);
-          strncpy(prev_line, curr_line,MAXLINELEN);
+        
+        if (iflag)
+          prev_not_equals_curr = stricmp(prev_line, curr_line);
+        else
+          prev_not_equals_curr = strcmp(prev_line, curr_line);
+        
+        if(prev_not_equals_curr){
+          if (dflag){
+            if (line > 1){
+              if (cflag && start){
+                printf(1,"%d\t", line);
+              } else if (cflag){
+                start = 1;
+              }
+            }
+            printf(1, prev_line);
+            line = 0;
+            safestrcpy(prev_line, curr_line, MAXLINELEN);
+          }
+          else {
+            if (cflag && start){
+              printf(1,"%d\t", line);
+            } else if (cflag){
+              start = 1;
+            }
+            printf(1, prev_line);
+            line = 0;
+            safestrcpy(prev_line, curr_line, MAXLINELEN);
+          }
         }
         character = 0;
       }
     }
-    strncpy(prev_line, curr_line,MAXLINELEN);
   }
+
+  if (dflag){
+    if (line > 1){
+      if (cflag && start){
+        printf(1,"%d\t", line);
+      } else if (cflag){
+        start = 1;
+      }
+      printf(1, prev_line);
+    }
+  }
+  else {
+    if (cflag && start){
+      printf(1,"%d\t", line);
+    } else if (cflag){
+      start = 1;
+    }
+    printf(1, prev_line);
+  }
+  if (line == 1 && !dflag){
+    if (cflag && start){
+      printf(1,"%d\t", line);
+    } else if (cflag){
+      start = 1;
+    }
+    printf(1, curr_line);
+  }
+  
+  free(prev_line);
+  free(curr_line);
 
   if(bytes_read < 0){
     printf(1, "uniq: read error\n");
@@ -72,19 +137,27 @@ int
 main(int argc, char *argv[])
 {
   int fd, i;
-
+  int flags = 0;
   if(argc <= 1){
-    uniq(0);
+    uniq(0, 0);
     exit();
   }
 
   for(i = 1; i < argc; i++){
-    if((fd = open(argv[i], 0)) < 0){
+    if(strcmp(argv[i],"-c") == 0){
+      flags += 4;
+    } else if (strcmp(argv[i],"-d") == 0){
+      flags += 2;
+    } else if (strcmp(argv[i],"-i") == 0){
+      flags += 1;
+    } else if((fd = open(argv[i], 0)) < 0){
       printf(1, "uniq: cannot open %s\n", argv[i]);
       exit();
     }
-    uniq(fd);
-    close(fd);
+
+    
   }
+  uniq(fd, flags);
+  close(fd);
   exit();
 }
